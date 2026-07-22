@@ -1,48 +1,199 @@
 # Minuto — Backend
 
-API NestJS y MongoDB para registrar entradas y cobrar estacionamientos por
-minuto.
+API para administrar entradas, salidas y cobros de un estacionamiento por
+minuto. Está construida con NestJS, TypeScript, Mongoose y MongoDB.
 
-## Funciones del MVP
+## Tecnologías
 
-- Normalización y validación de patentes.
-- Una sola estadía activa por vehículo.
-- Cobro por minuto con redondeo hacia arriba y mínimo de un minuto.
-- Tarifa aplicada guardada en cada estadía.
-- Registro del medio de pago.
-- Resumen de caja diario.
-- Logs fechados siempre con la zona horaria `America/Santiago`, incluyendo los
-  cambios automáticos de horario de verano de Chile.
+- NestJS 10
+- TypeScript
+- MongoDB
+- Mongoose
+- `@nestjs/config` y `ConfigService`
+- Jest
 
-## Configuración
+## Reglas del negocio
+
+- Las patentes se normalizan a mayúsculas y sin separadores.
+- Una patente no puede tener más de una estadía activa.
+- Se cobra como mínimo un minuto.
+- Cada fracción se redondea al minuto siguiente.
+- La tarifa aplicada queda guardada en la estadía para conservar el valor
+  histórico aunque la tarifa general cambie.
+- La salida registra el total, la duración y el medio de pago.
+- Los medios de pago admitidos son `cash`, `debit`, `credit` y `transfer`.
+- El operador puede registrar manualmente una salida sin pago.
+- Las evasiones generan deuda pendiente y no se suman a la recaudación.
+- Existe un lugar principal compartido por todos los operadores. Cada estadía,
+  consulta y auditoría queda asociada a ese lugar.
+- Una patente solo puede tener una estadía activa por lugar, pero puede volver
+  a ingresar después de finalizar la anterior.
+
+## Logs y auditoría
+
+El sistema mantiene dos capas separadas:
+
+- Logs técnicos estructurados solamente para respuestas HTTP fallidas. Las
+  lecturas y operaciones exitosas no se imprimen para evitar ruido redundante.
+  Cada error incluye `requestId`, método, ruta, estado y duración en una sola
+  línea JSON, sin parámetros de consulta.
+- Auditoría de negocio persistida en la colección MongoDB `audit_logs` para
+  entradas, cobros, evasiones y operaciones rechazadas.
+
+Cada auditoría guarda actor, entidad, resumen, metadata del cobro, IP, agente de
+usuario y `requestId`. Las fechas de MongoDB permanecen en UTC y los logs de
+consola usan `America/Santiago`. La colección tiene índices por fecha, acción,
+`requestId` y entidad.
+
+La auditoría es tolerante a fallos: si no puede escribir un evento, registra el
+error técnico sin revertir una entrada o un cobro que ya se completó. No existe
+un endpoint público para consultar auditorías; debe agregarse detrás de
+autenticación administrativa.
+
+La implementación completa y las decisiones tomadas están documentadas en
+[`docs/logging-y-auditoria.md`](docs/logging-y-auditoria.md).
+
+## Fechas y zona horaria
+
+MongoDB almacena `entryTime`, `exitTime`, `paidAt`, `createdAt` y `updatedAt`
+como fechas UTC. Los logs se formatean siempre con `America/Santiago` y respetan
+automáticamente los cambios de horario de verano de Chile.
+
+Ejemplo durante el invierno chileno:
+
+```text
+MongoDB: 2026-07-21T12:30:00.000Z
+Chile:   21-07-2026 08:30:00
+```
+
+## Requisitos
+
+- Node.js 22, indicado en `.nvmrc`.
+- MongoDB local o una instancia de MongoDB Atlas.
+
+## Instalación
 
 ```bash
-cp .env.example .env
 npm install
-npm run start:dev
+cp .env.example .env
 ```
 
-La API queda disponible en `http://localhost:3001`. La tarifa predeterminada es
-`30` CLP por minuto y se puede cambiar con `RATE_PER_MINUTE`.
+## Variables de entorno
 
-Todas las variables de entorno se leen mediante `ConfigService`. La aplicación
-falla al iniciar si `MONGODB_URI` no está configurada; `MONGODB_DB` usa
-`CarParking` como valor predeterminado.
+Todas las variables se leen mediante `ConfigService`.
 
-## Endpoints
+| Variable                   | Obligatoria | Valor predeterminado    | Descripción                                  |
+| -------------------------- | ----------- | ----------------------- | -------------------------------------------- |
+| `MONGODB_URI`              | Sí          | —                       | Cadena de conexión de MongoDB                |
+| `MONGODB_DB`               | No          | `CarParking`            | Nombre de la base de datos                   |
+| `PORT`                     | No          | `3001`                  | Puerto HTTP del backend                      |
+| `FRONTEND_URL`             | No          | `http://localhost:3000` | Origen permitido por CORS                    |
+| `RATE_PER_MINUTE`          | Sí          | —                       | Tarifa CLP por minuto del lugar              |
+| `PARKING_LOCATION_CODE`    | Sí          | —                       | Código estable, por ejemplo `STRIPCENTER`     |
+| `PARKING_LOCATION_NAME`    | Sí          | —                       | Nombre visible para los operadores           |
+| `PARKING_LOCATION_ADDRESS` | No          | —                       | Dirección visible del estacionamiento        |
 
-- `POST /parking/entry` — body: `{ "vehicleNumber": "ABCD12" }`
-- `POST /parking/exit` — body: `{ "vehicleNumber": "ABCD12", "paymentMethod": "cash" }`
-- `GET /parking?status=active`
-- `GET /parking?status=completed`
-- `GET /parking/summary/today`
-- `GET /parking/config`
+La aplicación falla al iniciar cuando `MONGODB_URI` no está configurada o
+cuando `RATE_PER_MINUTE` falta, no es numérica o no es mayor que cero. Después
+de cambiar la tarifa se debe reiniciar el backend. El nuevo valor se aplica a
+las entradas posteriores; las estadías ya abiertas conservan su tarifa original.
+El lugar configurado se crea o actualiza automáticamente en la colección
+`parking_locations`. Los movimientos anteriores se migran al lugar principal
+sin modificar sus montos ni horarios.
 
-Medios de pago: `cash`, `debit`, `credit` y `transfer`.
-
-## Verificación
+## Ejecución
 
 ```bash
+# Desarrollo con recarga automática
+npm run start:dev
+
+# Compilación
 npm run build
-npm test -- --runInBand
+
+# Producción después de compilar
+npm run start:prod
 ```
+
+Con el `.env.example`, la API queda disponible en `http://localhost:3500`.
+
+## API
+
+### Registrar entrada
+
+```http
+POST /parking/entry
+Content-Type: application/json
+
+{
+  "vehicleNumber": "ABCD12"
+}
+```
+
+### Registrar cobro y salida
+
+```http
+POST /parking/exit
+Content-Type: application/json
+
+{
+  "vehicleNumber": "ABCD12",
+  "paymentMethod": "debit"
+}
+```
+
+### Consultas
+
+- `GET /parking?status=active` — estadías activas.
+- `GET /parking?status=completed` — últimas estadías cobradas.
+- `GET /parking?status=evaded` — últimas salidas sin pago.
+- `GET /parking/summary/today` — resumen diario de caja.
+- `GET /parking/config` — tarifa y moneda configuradas.
+- `GET /locations/current` — lugar compartido por la aplicación.
+
+### Registrar salida sin pago
+
+```http
+POST /parking/evasion
+Content-Type: application/json
+
+{
+  "vehicleNumber": "ABCD12",
+  "reasonCode": "left-without-payment",
+  "observation": "Salida sin pago observada por el operador"
+}
+```
+
+Motivos permitidos: `left-without-payment`, `payment-refused`,
+`operator-record-correction`, `unknown` y `other`.
+
+## Estructura principal
+
+```text
+src/
+├── common/logging/  # Logs con horario de Chile
+├── database/        # Conexión MongoDB mediante ConfigService
+├── location/        # Lugar principal y tarifa configurada
+├── parking/         # Esquema, cobro, servicio y controlador
+├── user/            # Base del módulo de usuarios
+├── app.module.ts
+└── main.ts
+```
+
+## Calidad
+
+```bash
+# Pruebas unitarias
+npm test -- --runInBand
+
+# Cobertura
+npm run test:cov
+
+# Formato
+npm run format
+
+# Lint
+npm run lint
+```
+
+Las pruebas cubren la normalización de patentes, el redondeo del cobro y la
+conversión de horario de Chile en invierno y verano.
