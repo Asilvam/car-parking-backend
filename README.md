@@ -24,6 +24,15 @@ minuto. Está construida con NestJS, TypeScript, Mongoose y MongoDB.
 - Los medios de pago admitidos son `cash`, `debit`, `credit` y `transfer`.
 - El operador puede registrar manualmente una salida sin pago.
 - Las evasiones generan deuda pendiente y no se suman a la recaudación.
+- Los ingresos se permiten solo dentro del horario operativo configurado
+  (`PARKING_OPEN_TIME` <= hora local de Chile < `PARKING_CLOSE_TIME`).
+- Fuera del horario operativo se bloquean nuevas entradas, pero los cobros y
+  salidas sin pago siguen habilitados para cerrar vehículos que ya estaban
+  dentro.
+- A la hora de auto cierre (`PARKING_AUTO_EVASION_TIME`) todo vehículo activo
+  se cierra automáticamente como evasión.
+- En la evasión automática, el tiempo y la deuda se calculan desde la entrada
+  hasta la hora de cierre de cobros (`PARKING_CLOSE_TIME`) del mismo día.
 - Existe un lugar principal compartido por todos los operadores. Cada estadía,
   consulta y auditoría queda asociada a ese lugar.
 - Una patente solo puede tener una estadía activa por lugar, pero puede volver
@@ -92,6 +101,9 @@ Todas las variables se leen mediante `ConfigService`.
 | `PARKING_LOCATION_CODE`    | Sí          | —                       | Código estable, por ejemplo `STRIPCENTER`     |
 | `PARKING_LOCATION_NAME`    | Sí          | —                       | Nombre visible para los operadores           |
 | `PARKING_LOCATION_ADDRESS` | No          | —                       | Dirección visible del estacionamiento        |
+| `PARKING_OPEN_TIME`        | Sí          | —                       | Hora de apertura para ingresos (`HH:mm`)     |
+| `PARKING_CLOSE_TIME`       | Sí          | —                       | Hora de cierre para ingresos (`HH:mm`)       |
+| `PARKING_AUTO_EVASION_TIME`| Sí          | —                       | Hora de cierre automático por evasión (`HH:mm`) |
 
 La aplicación falla al iniciar cuando `MONGODB_URI` no está configurada o
 cuando `RATE_PER_MINUTE` falta, no es numérica o no es mayor que cero. Después
@@ -100,6 +112,10 @@ las entradas posteriores; las estadías ya abiertas conservan su tarifa original
 El lugar configurado se crea o actualiza automáticamente en la colección
 `parking_locations`. Los movimientos anteriores se migran al lugar principal
 sin modificar sus montos ni horarios.
+
+Los horarios deben venir en formato `HH:mm` (24 horas) y cumplir este orden:
+`PARKING_OPEN_TIME < PARKING_CLOSE_TIME < PARKING_AUTO_EVASION_TIME`.
+Todas las validaciones de horario usan `America/Santiago`.
 
 ## Ejecución
 
@@ -129,6 +145,9 @@ Content-Type: application/json
 }
 ```
 
+Si el ingreso se intenta fuera del horario operativo, el endpoint devuelve
+`400 Bad Request`.
+
 ### Registrar cobro y salida
 
 ```http
@@ -140,6 +159,9 @@ Content-Type: application/json
   "paymentMethod": "debit"
 }
 ```
+
+Este endpoint se mantiene disponible fuera del horario de ingresos para cerrar
+operaciones pendientes.
 
 ### Consultas
 
@@ -162,6 +184,9 @@ Content-Type: application/json
   "observation": "Salida sin pago observada por el operador"
 }
 ```
+
+Este endpoint se mantiene disponible fuera del horario de ingresos para cerrar
+operaciones pendientes.
 
 Motivos permitidos: `left-without-payment`, `payment-refused`,
 `operator-record-correction`, `unknown` y `other`.
