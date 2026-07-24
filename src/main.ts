@@ -12,13 +12,49 @@ async function bootstrap() {
   });
   const configService = app.get(ConfigService);
 
+  const frontendUrls = configService
+    .get<string>('FRONTEND_URLS', '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const primaryFrontend = configService.get<string>(
+    'FRONTEND_URL',
+    'http://localhost:3000',
+  );
+
+  const allowedOrigins = Array.from(
+    new Set([primaryFrontend, ...frontendUrls]),
+  );
+
+  const wildcardSuffixes = allowedOrigins
+    .filter((origin) => origin.startsWith('*.'))
+    .map((origin) => origin.slice(1));
+
+  const staticOrigins = allowedOrigins.filter(
+    (origin) => !origin.startsWith('*.'),
+  );
+
   app.enableCors({
-    origin: configService.get<string>(
-      'FRONTEND_URL',
-      'http://localhost:3000',
-    ),
+    origin: (origin, callback) => {
+      if (!origin || staticOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      const matchesWildcard = wildcardSuffixes.some((suffix) =>
+        origin.endsWith(suffix),
+      );
+
+      if (matchesWildcard) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error('Origen no permitido por CORS'));
+    },
   });
 
-  await app.listen(configService.get<number>('PORT', 3001));
+  await app.listen(configService.get<number>('PORT', 3500));
 }
 bootstrap();
