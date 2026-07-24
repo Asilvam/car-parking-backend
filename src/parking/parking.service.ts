@@ -2,7 +2,10 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Parking } from './entities/parking.entity';
@@ -16,20 +19,63 @@ import { AuditService } from '../audit/audit.service';
 import { AuditContext } from '../audit/audit-context';
 import { EVASION_REASON_CODES, EvasionReasonCode } from './parking.constants';
 import { LocationService } from '../location/location.service';
+import { ConfigService } from '@nestjs/config';
+import {
+  getChileDateKey,
+  getChileDayCutoffUtc,
+  getChileLocalTimeLabel,
+  isWithinOperatingHours,
+} from './parking-operating-hours';
 
 @Injectable()
-export class ParkingService {
+export class ParkingService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ParkingService.name);
+  private autoEvasionTimer?: ReturnType<typeof setInterval>;
+  private lastAutoEvasionDate?: string;
+
   constructor(
     @InjectModel(Parking.name) private parkingModel: Model<Parking>,
     private readonly auditService: AuditService,
     private readonly locationService: LocationService,
+    private readonly configService: ConfigService,
   ) {}
+
+  onModuleInit(): void {
+    this.autoEvasionTimer = setInterval(() => {
+      void this.checkAutoEvasionTick(new Date());
+    }, 60_000);
+
+    void this.checkAutoEvasionTick(new Date());
+  }
+
+  onModuleDestroy(): void {
+    if (this.autoEvasionTimer) {
+      clearInterval(this.autoEvasionTimer);
+      this.autoEvasionTimer = undefined;
+    }
+  }
 
   async registerEntry(
     vehicleNumber: unknown,
     auditContext: AuditContext = { actor: 'system' },
   ): Promise<Parking> {
     const normalizedVehicleNumber = this.normalizeOrFail(vehicleNumber);
+    const now = new Date();
+    const openTime = this.configService.getOrThrow<string>('PARKING_OPEN_TIME');
+    const closeTime = this.configService.getOrThrow<string>('PARKING_CLOSE_TIME');
+
+    if (!isWithinOperatingHours(now, openTime, closeTime)) {
+      await this.recordRejected(
+        auditContext,
+        'parking.entry',
+        normalizedVehicleNumber,
+        'outside-operating-hours',
+      );
+      throw new BadRequestException(
+        `Fuera de horario de ingreso (${openTime} a ${closeTime}).`,
+      );
+    }
+
     const location = await this.locationService.getCurrentLocation();
     const activeParking = await this.parkingModel.findOne({
       locationId: location._id,
@@ -55,7 +101,7 @@ export class ParkingService {
       locationId: location._id,
       locationCode: location.code,
       vehicleNumber: normalizedVehicleNumber,
-      entryTime: new Date(),
+      entryTime: now,
       ratePerMinute: location.ratePerMinute,
       status: 'active',
       paymentStatus: 'pending',
@@ -338,12 +384,13 @@ export class ParkingService {
   async getTodaySummary() {
     const location = await this.locationService.getCurrentLocation();
     const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    startOfDay.setHours(8, 0, 0, 0);
 
     const [activeVehicles, completed] = await Promise.all([
       this.parkingModel.countDocuments({
         $and: [
           { locationId: location._id },
+          { entryTime: { $gte: startOfDay } },
           {
             $or: [
               { status: 'active' },
@@ -456,13 +503,116 @@ export class ParkingService {
 
   async getConfig() {
     const location = await this.locationService.getCurrentLocation();
+    const openTime = this.configService.getOrThrow<string>('PARKING_OPEN_TIME');
+    const closeTime = this.configService.getOrThrow<string>('PARKING_CLOSE_TIME');
+    const autoEvasionTime = this.configService.getOrThrow<string>(
+      'PARKING_AUTO_EVASION_TIME',
+    );
 
     return {
       locationId: String(location._id),
       locationCode: location.code,
       ratePerMinute: location.ratePerMinute,
       currency: location.currency,
+      openTime,
+      closeTime,
+      autoEvasionTime,
     };
+  }
+
+  async runAutoEvasionForClosingTime(now: Date = new Date()): Promise<number> {
+    const location = await this.locationService.getCurrentLocation();
+    const closeTime = this.configService.getOrThrow<string>('PARKING_CLOSE_TIME');
+    const autoEvasionTime = this.configService.getOrThrow<string>(
+      'PARKING_AUTO_EVASION_TIME',
+    );
+    const cutoffTime = getChileDayCutoffUtc(now, closeTime);
+    const activeParkings = await this.parkingModel
+      .find({
+        locationId: location._id,
+        $or: [
+          { status: 'active' },
+          { status: { $exists: false }, exitTime: { $exists: false } },
+        ],
+      })
+      .sort({ entryTime: 1 });
+
+    let processed = 0;
+
+    for (const parking of activeParkings) {
+      const ratePerMinute = parking.ratePerMinute || location.ratePerMinute;
+      const exitTime =
+        parking.entryTime.getTime() > cutoffTime.getTime()
+          ? parking.entryTime
+          : cutoffTime;
+      const { totalMinutes, totalCost } = calculateParkingCharge(
+        parking.entryTime,
+        exitTime,
+        ratePerMinute,
+      );
+
+      parking.exitTime = exitTime;
+      parking.totalMinutes = totalMinutes;
+      parking.totalCost = totalCost;
+      parking.ratePerMinute = ratePerMinute;
+      parking.status = 'evaded';
+      parking.paymentStatus = 'evaded';
+      parking.exitType = 'evasion';
+      parking.amountPaid = 0;
+      parking.outstandingAmount = totalCost;
+      parking.evasionReasonCode = 'unknown';
+      parking.evasionObservation =
+        `Cierre automático fuera de horario. Cobro calculado hasta ${closeTime}.`;
+      parking.evasionRecordedBy = 'system:auto';
+
+      const evadedParking = await parking.save();
+      processed += 1;
+
+      await this.auditService.record({
+        actor: 'system:auto',
+        action: 'parking.evasion.auto',
+        entityType: 'Parking',
+        entityId: String(evadedParking._id),
+        summary: `Evasión automática por cierre diario: ${evadedParking.vehicleNumber}`,
+        metadata: {
+          locationId: String(location._id),
+          locationCode: location.code,
+          vehicleNumber: evadedParking.vehicleNumber,
+          entryTime: evadedParking.entryTime,
+          exitTime: evadedParking.exitTime,
+          totalMinutes: evadedParking.totalMinutes,
+          totalCost: evadedParking.totalCost,
+          ratePerMinute: evadedParking.ratePerMinute,
+          closeTime,
+          autoEvasionTime,
+        },
+      });
+    }
+
+    return processed;
+  }
+
+  private async checkAutoEvasionTick(now: Date): Promise<void> {
+    const autoEvasionTime = this.configService.getOrThrow<string>(
+      'PARKING_AUTO_EVASION_TIME',
+    );
+    const currentTime = getChileLocalTimeLabel(now);
+    const chileDate = getChileDateKey(now);
+
+    if (currentTime < autoEvasionTime) {
+      return;
+    }
+
+    if (this.lastAutoEvasionDate === chileDate) {
+      return;
+    }
+
+    const processed = await this.runAutoEvasionForClosingTime(now);
+    this.lastAutoEvasionDate = chileDate;
+
+    this.logger.log(
+      `Cierre automático de evasión ejecutado (${chileDate}): ${processed} operaciones cerradas`,
+    );
   }
 
   private async recordRejected(

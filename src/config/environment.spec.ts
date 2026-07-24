@@ -5,6 +5,10 @@ describe('validateEnvironment', () => {
     RATE_PER_MINUTE: '45',
     PARKING_LOCATION_CODE: 'main',
     PARKING_LOCATION_NAME: 'Estacionamiento principal',
+    PARKING_OPEN_TIME: '08:00',
+    PARKING_CLOSE_TIME: '20:00',
+    PARKING_AUTO_EVASION_TIME: '21:00',
+    ADMIN_PANEL_PASSWORD: 'admin123',
   };
 
   it('convierte RATE_PER_MINUTE a número', () => {
@@ -39,6 +43,54 @@ describe('validateEnvironment', () => {
         ...validEnvironment,
         PARKING_LOCATION_NAME: '',
       }),
-    ).toThrow('PARKING_LOCATION_NAME');
+      ).toThrow('PARKING_LOCATION_NAME');
+  });
+
+  it('acepta horarios válidos en formato HH:mm', () => {
+    expect(validateEnvironment(validEnvironment)).toMatchObject({
+      PARKING_OPEN_TIME: '08:00',
+      PARKING_CLOSE_TIME: '20:00',
+      PARKING_AUTO_EVASION_TIME: '21:00',
+    });
+  });
+
+  it.each([
+    ['PARKING_OPEN_TIME', '8:00'],
+    ['PARKING_CLOSE_TIME', '20'],
+    ['PARKING_AUTO_EVASION_TIME', '25:00'],
+  ])('rechaza horario inválido %s=%s', (field, value) => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        [field]: value,
+      }),
+    ).toThrow(field);
+  });
+
+  it('exige que apertura sea antes de cierre y cierre antes de auto evasión', () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        PARKING_OPEN_TIME: '20:00',
+        PARKING_CLOSE_TIME: '08:00',
+      }),
+    ).toThrow('PARKING_OPEN_TIME');
+
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        PARKING_CLOSE_TIME: '21:00',
+        PARKING_AUTO_EVASION_TIME: '21:00',
+      }),
+    ).toThrow('PARKING_CLOSE_TIME');
+  });
+
+  it('exige clave de panel admin', () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        ADMIN_PANEL_PASSWORD: '',
+      }),
+    ).toThrow('ADMIN_PANEL_PASSWORD');
   });
 });
