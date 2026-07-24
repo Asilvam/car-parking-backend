@@ -384,12 +384,13 @@ export class ParkingService implements OnModuleInit, OnModuleDestroy {
   async getTodaySummary() {
     const location = await this.locationService.getCurrentLocation();
     const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    startOfDay.setHours(8, 0, 0, 0);
 
     const [activeVehicles, completed] = await Promise.all([
       this.parkingModel.countDocuments({
         $and: [
           { locationId: location._id },
+          { entryTime: { $gte: startOfDay } },
           {
             $or: [
               { status: 'active' },

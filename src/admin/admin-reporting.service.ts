@@ -87,7 +87,7 @@ export class AdminReportingService {
         debt: totalDebt,
       },
       paymentTotals,
-      recent: rows.slice(0, 200).map((record) => ({
+      recent: rows.map((record) => ({
         id: String(record._id),
         vehicleNumber: record.vehicleNumber,
         status: record.status,
