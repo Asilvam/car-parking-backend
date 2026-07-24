@@ -104,6 +104,7 @@ Todas las variables se leen mediante `ConfigService`.
 | `PARKING_OPEN_TIME`        | Sí          | —                       | Hora de apertura para ingresos (`HH:mm`)     |
 | `PARKING_CLOSE_TIME`       | Sí          | —                       | Hora de cierre para ingresos (`HH:mm`)       |
 | `PARKING_AUTO_EVASION_TIME`| Sí          | —                       | Hora de cierre automático por evasión (`HH:mm`) |
+| `ADMIN_PANEL_PASSWORD`     | Sí          | —                       | Clave simple para autenticación del panel admin |
 
 La aplicación falla al iniciar cuando `MONGODB_URI` no está configurada o
 cuando `RATE_PER_MINUTE` falta, no es numérica o no es mayor que cero. Después
@@ -171,6 +172,26 @@ operaciones pendientes.
 - `GET /parking/summary/today` — resumen diario de caja.
 - `GET /parking/config` — tarifa y moneda configuradas.
 - `GET /locations/current` — lugar compartido por la aplicación.
+
+### Administración y reportes
+
+Endpoints protegidos por sesión administrativa (`x-admin-session`):
+
+- `POST /admin/auth/login` — inicia sesión con clave simple (`ADMIN_PANEL_PASSWORD`).
+- `POST /admin/auth/logout` — cierra sesión admin.
+- `GET /admin/reports/parking-summary` — resumen + movimientos recientes con filtros.
+- `GET /admin/reports/parking.xlsx` — exporta Excel con hojas `Movimientos` y `Resumen`.
+
+Filtros soportados para resumen y exportación:
+
+- `preset=day|week|month|range`
+- `date=YYYY-MM-DD` para `day`, `week`, `month`
+- `from=YYYY-MM-DD&to=YYYY-MM-DD` para `range`
+- `status=all|active|completed|evaded`
+- `paymentMethod=all|cash|debit|credit|transfer`
+- `vehicleNumber=ABCD12`
+
+La semana se calcula con criterio Chile de lunes a domingo.
 
 ### Registrar salida sin pago
 

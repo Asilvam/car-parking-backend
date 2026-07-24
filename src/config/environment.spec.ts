@@ -8,6 +8,7 @@ describe('validateEnvironment', () => {
     PARKING_OPEN_TIME: '08:00',
     PARKING_CLOSE_TIME: '20:00',
     PARKING_AUTO_EVASION_TIME: '21:00',
+    ADMIN_PANEL_PASSWORD: 'admin123',
   };
 
   it('convierte RATE_PER_MINUTE a número', () => {
@@ -82,5 +83,14 @@ describe('validateEnvironment', () => {
         PARKING_AUTO_EVASION_TIME: '21:00',
       }),
     ).toThrow('PARKING_CLOSE_TIME');
+  });
+
+  it('exige clave de panel admin', () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        ADMIN_PANEL_PASSWORD: '',
+      }),
+    ).toThrow('ADMIN_PANEL_PASSWORD');
   });
 });

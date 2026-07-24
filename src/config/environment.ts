@@ -22,6 +22,7 @@ export function validateEnvironment(environment: Environment): Environment {
   const openTime = String(environment.PARKING_OPEN_TIME ?? '').trim();
   const closeTime = String(environment.PARKING_CLOSE_TIME ?? '').trim();
   const autoEvasionTime = String(environment.PARKING_AUTO_EVASION_TIME ?? '').trim();
+  const adminPassword = String(environment.ADMIN_PANEL_PASSWORD ?? '').trim();
 
   if (!Number.isFinite(ratePerMinute) || ratePerMinute <= 0) {
     throw new Error(
@@ -58,6 +59,10 @@ export function validateEnvironment(environment: Environment): Environment {
     );
   }
 
+  if (!adminPassword) {
+    throw new Error('ADMIN_PANEL_PASSWORD es obligatorio');
+  }
+
   return {
     ...environment,
     RATE_PER_MINUTE: ratePerMinute,
@@ -66,5 +71,6 @@ export function validateEnvironment(environment: Environment): Environment {
     PARKING_OPEN_TIME: openTime,
     PARKING_CLOSE_TIME: closeTime,
     PARKING_AUTO_EVASION_TIME: autoEvasionTime,
+    ADMIN_PANEL_PASSWORD: adminPassword,
   };
 }

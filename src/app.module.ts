@@ -7,6 +7,7 @@ import { DatabaseModule } from './database/database.module';
 import { ConfigModule } from '@nestjs/config';
 import { HttpLoggingMiddleware } from './common/logging/http-logging.middleware';
 import { validateEnvironment } from './config/environment';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { validateEnvironment } from './config/environment';
     ParkingModule,
     UserModule,
     DatabaseModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
