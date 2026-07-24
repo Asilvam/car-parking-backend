@@ -132,6 +132,7 @@ export class ParkingService implements OnModuleInit, OnModuleDestroy {
   async registerExit(
     vehicleNumber: unknown,
     paymentMethod: PaymentMethod = 'cash',
+    applyPurchaseDiscount = false,
     auditContext: AuditContext = { actor: 'system' },
   ): Promise<Parking> {
     const normalizedVehicleNumber = this.normalizeOrFail(vehicleNumber);
@@ -172,22 +173,25 @@ export class ParkingService implements OnModuleInit, OnModuleDestroy {
 
     const exitTime = new Date();
     const ratePerMinute = parking.ratePerMinute || location.ratePerMinute;
-    const { totalMinutes, totalCost } = calculateParkingCharge(
+    const { totalMinutes } = calculateParkingCharge(
       parking.entryTime,
       exitTime,
       ratePerMinute,
     );
+    const discountMinutes = applyPurchaseDiscount ? 15 : 0;
+    const discountedMinutes = Math.max(totalMinutes - discountMinutes, 0);
+    const discountedCost = discountedMinutes * ratePerMinute;
 
     parking.exitTime = exitTime;
     parking.totalMinutes = totalMinutes;
-    parking.totalCost = totalCost;
+    parking.totalCost = discountedCost;
     parking.ratePerMinute = ratePerMinute;
     parking.status = 'completed';
     parking.paymentStatus = 'paid';
     parking.exitType = 'paid';
     parking.paymentMethod = paymentMethod;
     parking.paidAt = exitTime;
-    parking.amountPaid = totalCost;
+    parking.amountPaid = discountedCost;
     parking.outstandingAmount = 0;
 
     const completedParking = await parking.save();
@@ -205,6 +209,8 @@ export class ParkingService implements OnModuleInit, OnModuleDestroy {
         entryTime: completedParking.entryTime,
         exitTime: completedParking.exitTime,
         totalMinutes: completedParking.totalMinutes,
+        discountMinutes,
+        minutesCharged: discountedMinutes,
         ratePerMinute: completedParking.ratePerMinute,
         totalCost: completedParking.totalCost,
         paymentMethod: completedParking.paymentMethod,
