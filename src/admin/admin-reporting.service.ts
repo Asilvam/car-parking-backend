@@ -97,6 +97,9 @@ export class AdminReportingService {
         amountPaid: record.amountPaid ?? record.totalCost ?? 0,
         outstandingAmount: record.outstandingAmount ?? 0,
         paymentMethod: record.paymentMethod,
+        purchaseDiscountApplied: record.purchaseDiscountApplied,
+        discountMinutesApplied: record.discountMinutesApplied,
+        minutesCharged: record.minutesCharged,
       })),
     };
   }

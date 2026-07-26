@@ -11,4 +11,5 @@ export class ExitParkingDto {
   vehicleNumber: string;
   paymentMethod?: PaymentMethod;
   applyPurchaseDiscount?: boolean;
+  quotedExitTime?: string;
 }

@@ -24,6 +24,7 @@ export class ParkingController {
       input.vehicleNumber,
       input.paymentMethod,
       input.applyPurchaseDiscount,
+      input.quotedExitTime,
       createAuditContext(request),
     );
   }
