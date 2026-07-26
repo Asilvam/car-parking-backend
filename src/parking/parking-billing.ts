@@ -1,4 +1,5 @@
-const VEHICLE_NUMBER_PATTERN = /^[A-Z0-9]{4,8}$/;
+const VEHICLE_NUMBER_PATTERN =
+  /^[B-DF-HJ-NP-TV-Z]{2}(?:[B-DF-HJ-NP-TV-Z]{2}|[0-9]{2})[0-9]{2}$/;
 
 export function normalizeVehicleNumber(vehicleNumber: unknown): string {
   if (typeof vehicleNumber !== 'string') {
@@ -8,7 +9,9 @@ export function normalizeVehicleNumber(vehicleNumber: unknown): string {
   const normalized = vehicleNumber.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
   if (!VEHICLE_NUMBER_PATTERN.test(normalized)) {
-    throw new Error('La patente debe tener entre 4 y 8 letras o números');
+    throw new Error(
+      'La patente debe tener 6 caracteres: 2 consonantes, 2 del medio iguales entre sí (letras o números) y 2 números',
+    );
   }
 
   return normalized;

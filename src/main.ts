@@ -11,6 +11,21 @@ async function bootstrap() {
     logger: new SantiagoLogger(),
   });
   const configService = app.get(ConfigService);
+  const frontendUrl = configService.get<string>(
+    'FRONTEND_URL',
+    'http://localhost:5173',
+  );
+  const frontendUrls = configService
+    .get<string>('FRONTEND_URLS', '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const allowedOrigins = new Set([
+    'http://localhost:5173',
+    'http://localhost:3000',
+    frontendUrl,
+    ...frontendUrls,
+  ]);
 
   const frontendUrls = configService
     .get<string>('FRONTEND_URLS', '')
@@ -37,21 +52,12 @@ async function bootstrap() {
 
   app.enableCors({
     origin: (origin, callback) => {
-      if (!origin || staticOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.has(origin)) {
         callback(null, true);
         return;
       }
 
-      const matchesWildcard = wildcardSuffixes.some((suffix) =>
-        origin.endsWith(suffix),
-      );
-
-      if (matchesWildcard) {
-        callback(null, true);
-        return;
-      }
-
-      callback(new Error('Origen no permitido por CORS'));
+      callback(new Error('Origin no permitido por CORS'));
     },
   });
 

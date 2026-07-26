@@ -132,6 +132,8 @@ export class ParkingService implements OnModuleInit, OnModuleDestroy {
   async registerExit(
     vehicleNumber: unknown,
     paymentMethod: PaymentMethod = 'cash',
+    applyPurchaseDiscount = false,
+    quotedExitTime?: string,
     auditContext: AuditContext = { actor: 'system' },
   ): Promise<Parking> {
     const normalizedVehicleNumber = this.normalizeOrFail(vehicleNumber);
@@ -170,25 +172,33 @@ export class ParkingService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    const exitTime = new Date();
+    const exitTime = this.resolveExitTime(parking.entryTime, quotedExitTime);
     const ratePerMinute = parking.ratePerMinute || location.ratePerMinute;
-    const { totalMinutes, totalCost } = calculateParkingCharge(
+    const { totalMinutes } = calculateParkingCharge(
       parking.entryTime,
       exitTime,
       ratePerMinute,
     );
+    const discountMinutes = applyPurchaseDiscount
+      ? this.getPurchaseDiscountMinutes()
+      : 0;
+    const discountedMinutes = Math.max(totalMinutes - discountMinutes, 0);
+    const discountedCost = discountedMinutes * ratePerMinute;
 
     parking.exitTime = exitTime;
     parking.totalMinutes = totalMinutes;
-    parking.totalCost = totalCost;
+    parking.totalCost = discountedCost;
     parking.ratePerMinute = ratePerMinute;
     parking.status = 'completed';
     parking.paymentStatus = 'paid';
     parking.exitType = 'paid';
     parking.paymentMethod = paymentMethod;
     parking.paidAt = exitTime;
-    parking.amountPaid = totalCost;
+    parking.amountPaid = discountedCost;
     parking.outstandingAmount = 0;
+    parking.purchaseDiscountApplied = applyPurchaseDiscount;
+    parking.discountMinutesApplied = discountMinutes;
+    parking.minutesCharged = discountedMinutes;
 
     const completedParking = await parking.save();
 
@@ -205,6 +215,9 @@ export class ParkingService implements OnModuleInit, OnModuleDestroy {
         entryTime: completedParking.entryTime,
         exitTime: completedParking.exitTime,
         totalMinutes: completedParking.totalMinutes,
+        discountMinutes,
+        minutesCharged: discountedMinutes,
+        quotedExitTime,
         ratePerMinute: completedParking.ratePerMinute,
         totalCost: completedParking.totalCost,
         paymentMethod: completedParking.paymentMethod,
@@ -517,7 +530,25 @@ export class ParkingService implements OnModuleInit, OnModuleDestroy {
       openTime,
       closeTime,
       autoEvasionTime,
+      purchaseDiscountMinutes: this.getPurchaseDiscountMinutes(),
     };
+  }
+
+  private getPurchaseDiscountMinutes(): number {
+    const rawValue = this.configService.get<string>(
+      'PARKING_PURCHASE_DISCOUNT_MINUTES',
+      '15',
+    );
+    const parsed = Number.parseInt(rawValue, 10);
+
+    if (!Number.isFinite(parsed) || Number.isNaN(parsed) || parsed < 0) {
+      this.logger.warn(
+        `PARKING_PURCHASE_DISCOUNT_MINUTES invalido (${rawValue}). Se usa 15 por defecto.`,
+      );
+      return 15;
+    }
+
+    return parsed;
   }
 
   async runAutoEvasionForClosingTime(now: Date = new Date()): Promise<number> {
@@ -646,5 +677,28 @@ export class ParkingService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       throw new BadRequestException((error as Error).message);
     }
+  }
+
+  private resolveExitTime(entryTime: Date, quotedExitTime?: string): Date {
+    if (!quotedExitTime) {
+      return new Date();
+    }
+
+    const parsed = new Date(quotedExitTime);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException('quotedExitTime inválido');
+    }
+
+    const now = new Date();
+    const maxFutureMs = 5_000;
+    if (parsed.getTime() > now.getTime() + maxFutureMs) {
+      throw new BadRequestException('quotedExitTime no puede estar en el futuro');
+    }
+
+    if (parsed.getTime() < entryTime.getTime()) {
+      throw new BadRequestException('quotedExitTime no puede ser menor que entryTime');
+    }
+
+    return parsed;
   }
 }

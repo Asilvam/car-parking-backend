@@ -23,6 +23,8 @@ export class ParkingController {
     return this.parkingService.registerExit(
       input.vehicleNumber,
       input.paymentMethod,
+      input.applyPurchaseDiscount,
+      input.quotedExitTime,
       createAuditContext(request),
     );
   }

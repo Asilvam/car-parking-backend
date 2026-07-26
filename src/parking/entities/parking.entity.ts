@@ -62,6 +62,15 @@ export class Parking extends Document {
   @Prop({ required: true, default: 0 })
   outstandingAmount: number;
 
+  @Prop({ required: true, default: false })
+  purchaseDiscountApplied: boolean;
+
+  @Prop({ required: true, default: 0 })
+  discountMinutesApplied: number;
+
+  @Prop()
+  minutesCharged?: number;
+
   @Prop({
     enum: [
       'left-without-payment',
