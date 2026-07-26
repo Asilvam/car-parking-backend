@@ -27,6 +27,29 @@ async function bootstrap() {
     ...frontendUrls,
   ]);
 
+  const frontendUrls = configService
+    .get<string>('FRONTEND_URLS', '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const primaryFrontend = configService.get<string>(
+    'FRONTEND_URL',
+    'http://localhost:3000',
+  );
+
+  const allowedOrigins = Array.from(
+    new Set([primaryFrontend, ...frontendUrls]),
+  );
+
+  const wildcardSuffixes = allowedOrigins
+    .filter((origin) => origin.startsWith('*.'))
+    .map((origin) => origin.slice(1));
+
+  const staticOrigins = allowedOrigins.filter(
+    (origin) => !origin.startsWith('*.'),
+  );
+
   app.enableCors({
     origin: (origin, callback) => {
       if (!origin || allowedOrigins.has(origin)) {
@@ -38,6 +61,6 @@ async function bootstrap() {
     },
   });
 
-  await app.listen(configService.get<number>('PORT', 3001));
+  await app.listen(configService.get<number>('PORT', 3500));
 }
 bootstrap();

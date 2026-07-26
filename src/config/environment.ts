@@ -23,6 +23,12 @@ export function validateEnvironment(environment: Environment): Environment {
   const closeTime = String(environment.PARKING_CLOSE_TIME ?? '').trim();
   const autoEvasionTime = String(environment.PARKING_AUTO_EVASION_TIME ?? '').trim();
   const adminPassword = String(environment.ADMIN_PANEL_PASSWORD ?? '').trim();
+  const frontendUrl = String(environment.FRONTEND_URL ?? '').trim();
+  const frontendUrls = String(environment.FRONTEND_URLS ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join(',');
 
   if (!Number.isFinite(ratePerMinute) || ratePerMinute <= 0) {
     throw new Error(
@@ -72,5 +78,7 @@ export function validateEnvironment(environment: Environment): Environment {
     PARKING_CLOSE_TIME: closeTime,
     PARKING_AUTO_EVASION_TIME: autoEvasionTime,
     ADMIN_PANEL_PASSWORD: adminPassword,
+    FRONTEND_URL: frontendUrl,
+    FRONTEND_URLS: frontendUrls,
   };
 }

@@ -97,6 +97,7 @@ Todas las variables se leen mediante `ConfigService`.
 | `MONGODB_DB`               | No          | `CarParking`            | Nombre de la base de datos                   |
 | `PORT`                     | No          | `3001`                  | Puerto HTTP del backend                      |
 | `FRONTEND_URL`             | No          | `http://localhost:3000` | Origen permitido por CORS                    |
+| `FRONTEND_URLS`            | No          | —                       | Orígenes adicionales CORS separados por coma |
 | `RATE_PER_MINUTE`          | Sí          | —                       | Tarifa CLP por minuto del lugar              |
 | `PARKING_LOCATION_CODE`    | Sí          | —                       | Código estable, por ejemplo `STRIPCENTER`     |
 | `PARKING_LOCATION_NAME`    | Sí          | —                       | Nombre visible para los operadores           |
@@ -117,6 +118,9 @@ sin modificar sus montos ni horarios.
 Los horarios deben venir en formato `HH:mm` (24 horas) y cumplir este orden:
 `PARKING_OPEN_TIME < PARKING_CLOSE_TIME < PARKING_AUTO_EVASION_TIME`.
 Todas las validaciones de horario usan `America/Santiago`.
+Para CORS, `FRONTEND_URL` define el origen principal y `FRONTEND_URLS` permite
+agregar más orígenes en formato CSV. También acepta comodines por subdominio,
+por ejemplo `*.car-parking-front.pages.dev`.
 
 ## Ejecución
 
@@ -243,3 +247,53 @@ npm run lint
 
 Las pruebas cubren la normalización de patentes, el redondeo del cobro y la
 conversión de horario de Chile en invierno y verano.
+
+## Deploy en Heroku
+
+Este backend está preparado para deploy en Heroku con:
+
+- `Procfile` (`web: npm run start:prod`)
+- `runtime.txt` (Node.js 22)
+
+Pasos recomendados:
+
+1. Crear app en Heroku:
+
+   ```bash
+   heroku create car-parking-backend
+   ```
+
+2. Configurar variables obligatorias:
+
+   ```bash
+   heroku config:set \
+     MONGODB_URI="<mongodb-uri>" \
+     MONGODB_DB="CarParking" \
+     FRONTEND_URL="https://<tu-proyecto>.pages.dev" \
+     FRONTEND_URLS="https://miminuto.serviciosasm.cl,*.car-parking-front.pages.dev" \
+     RATE_PER_MINUTE="40" \
+     PARKING_LOCATION_CODE="STRIPCENTER" \
+     PARKING_LOCATION_NAME="Stripcenter" \
+     PARKING_LOCATION_ADDRESS="Avenida Normandie s/n" \
+     PARKING_OPEN_TIME="08:00" \
+     PARKING_CLOSE_TIME="20:00" \
+     PARKING_AUTO_EVASION_TIME="21:00" \
+     ADMIN_PANEL_PASSWORD="<clave-admin>"
+   ```
+
+3. Publicar:
+
+   ```bash
+   git push heroku main
+   ```
+
+4. Ver logs:
+
+   ```bash
+   heroku logs --tail
+   ```
+
+Notas:
+
+- Heroku inyecta `PORT` automáticamente; no lo fijes manualmente.
+- El frontend en Cloudflare Pages debe usar `VITE_API_URL` con la URL Heroku.
